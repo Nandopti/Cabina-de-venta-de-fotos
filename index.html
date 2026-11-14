@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <!--
+      Cabina de retratos.
+
+      Librerías y por qué están (o no):
+      - Vite: herramienta que sirve y empaqueta el sitio. No se ve en pantalla.
+        Se usa con `npm run dev`. No es un framework de interfaz.
+      - qrcode: dibuja el QR del cobro. El navegador no trae eso.
+      - Cámara, filtros, marcos y compartir: APIs del navegador
+        (getUserMedia, Canvas, Web Share). No hace falta React, Vue ni
+        una librería de cámara para este flujo de una sola página.
+      - CoDi: no hay SDK. La llamada real vive en server/codi.js.
+
+      Móvil: viewport-fit=cover respeta la muesca del celular.
+      La cámara del iPhone exige el atributo playsinline del <video>.
+    -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#10241c" />
+    <meta
+      name="description"
+      content="Toma un retrato, elige un estilo y págalo con QR CoDi o con tarjeta."
+    />
+    <title>Cabina de retratos</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%2310241c' width='32' height='32' rx='6'/%3E%3Ccircle fill='%23f0a202' cx='16' cy='16' r='7'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Fraunces (títulos) y Outfit (botones). Si no hay internet, el CSS
+      usa Georgia y Segoe UI. Se pueden quitar estas dos líneas.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Outfit:wght@400;560;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <div class="picado" aria-hidden="true"></div>
+      <header class="top">
+        <p class="brand">Cabina de retratos</p>
+        <!-- Los pasos los actualiza src/app.js -->
+        <ol class="steps" id="steps">
+          <li data-step="booth">Estilo</li>
+          <li data-step="review">Foto</li>
+          <li data-step="pay">Pago</li>
+          <li data-step="done">Publicar</li>
+        </ol>
+      </header>
+
+      <p id="error" class="error" hidden></p>
+
+      <main>
+        <!--
+          Cada <section> es un paso. Solo uno se muestra.
+          El atributo hidden lo controla src/app.js.
+        -->
+        <section class="screen" data-screen="start" id="screen-start">
+          <div class="hero">
+            <p class="eyebrow">Feria · un disparo</p>
+            <h1>Un retrato para llevarte.</h1>
+            <p class="lead">
+              Elige un estilo con la cámara, genera tu foto y págalo con el QR de tu banco o con tarjeta.
+            </p>
+            <p class="price" id="price-label">Retrato digital</p>
+          </div>
+          <div class="actions">
+            <button class="primary" id="btn-start" type="button">Abrir la cámara</button>
+            <button class="secondary" id="btn-sample" type="button">Probar con foto de muestra</button>
+          </div>
+          <p class="note">
+            En el celular, permite la cámara cuando el navegador lo pida. Si estás en el iPhone por una
+            dirección que no es HTTPS, usa la foto de muestra.
+          </p>
+        </section>
+
+        <section class="screen" data-screen="booth" id="screen-booth" hidden>
+          <!--
+            El video es la cámara. #still muestra una foto subida o la de muestra
+            para poder elegir el estilo igual que con la cámara.
+          -->
+          <div class="viewfinder marco-polaroid" id="viewfinder">
+            <video id="camera" playsinline autoplay muted></video>
+            <img id="still" alt="" hidden />
+            <p class="countdown" id="countdown" hidden>3</p>
+          </div>
+
+          <div class="panel">
+            <p class="label">Estilo</p>
+            <div class="chips" id="filter-list" role="listbox" aria-label="Estilos"></div>
+            <p class="label">Marco</p>
+            <div class="chips" id="frame-list" role="listbox" aria-label="Marcos"></div>
+          </div>
+
+          <div class="shutter-row">
+            <button class="ghost" id="btn-flip" type="button">Cambiar cámara</button>
+            <button class="shutter" id="btn-shutter" type="button" aria-label="Tomar foto"></button>
+            <label class="ghost file-btn">
+              Subir
+              <input id="file-photo" type="file" accept="image/*" hidden />
+            </label>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="review" id="screen-review" hidden>
+          <figure class="result">
+            <img id="review-photo" alt="Retrato listo para pagar" />
+          </figure>
+          <div class="stack">
+            <h2>¿Te quedas con esta?</h2>
+            <p class="lead">Si sigues, armo el QR del cobro. Todavía no se cobra nada.</p>
+            <button class="primary" id="btn-continue" type="button">Generar QR y pagar</button>
+            <button class="secondary" id="btn-retake" type="button">Tomar otra</button>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="pay" id="screen-pay" hidden>
+          <figure class="result result-small">
+            <img id="pay-photo" alt="Retrato en espera de pago" />
+          </figure>
+          <div class="stack">
+            <h2>Paga tu retrato</h2>
+            <p class="lead" id="pay-summary"></p>
+            <p class="ref" id="pay-reference"></p>
+            <!-- El QR lo dibuja la librería qrcode sobre este canvas. -->
+            <div class="qr-card">
+              <canvas id="qr" width="240" height="240" aria-label="Código QR de pago"></canvas>
+              <p id="qr-hint">Escanea el QR con la app de tu banco.</p>
+            </div>
+            <button class="primary" id="btn-card" type="button">Pagar con tarjeta</button>
+            <button class="secondary" id="btn-refresh-pay" type="button">Ya pagué, verificar</button>
+            <button class="secondary" id="btn-simulate-qr" type="button" hidden>
+              Simular pago del QR
+            </button>
+            <p class="status" id="pay-status" aria-live="polite"></p>
+          </div>
+        </section>
+
+        <!--
+          Sustituto de la página del banco. En un cobro real esta URL es
+          checkoutUrl, en el dominio del banco, y ahí sí se escribe la tarjeta.
+          Aquí no hay campos de tarjeta a propósito.
+        -->
+        <section class="screen" data-screen="bank" id="screen-bank" hidden>
+          <div class="bank-card">
+            <p class="eyebrow">Página del banco</p>
+            <h2>Pago con tarjeta</h2>
+            <p class="lead" id="bank-copy"></p>
+            <p class="price" id="bank-amount"></p>
+            <button class="primary" id="btn-simulate-card" type="button" hidden>
+              Simular pago aprobado
+            </button>
+            <button class="secondary" id="btn-back-qr" type="button">Volver al QR</button>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="done" id="screen-done" hidden>
+          <figure class="result result-small">
+            <img id="done-photo" alt="Retrato pagado" />
+          </figure>
+          <div class="stack">
+            <h2>Listo, es tuyo.</h2>
+            <p class="lead" id="done-copy">
+              Descarga el retrato o ábrelo en Instagram o WhatsApp. En el celular, el botón abre la hoja
+              para publicarlo.
+            </p>
+            <button class="primary" id="btn-instagram" type="button">Publicar en Instagram</button>
+            <button class="secondary" id="btn-whatsapp" type="button">Enviar por WhatsApp</button>
+            <button class="secondary" id="btn-share" type="button">Otras redes</button>
+            <button class="ghost" id="btn-download" type="button">Solo descargar</button>
+            <button class="ghost" id="btn-again" type="button">Nueva foto</button>
+            <p class="status" id="share-status" aria-live="polite"></p>
+          </div>
+        </section>
+      </main>
+    </div>
+    <noscript>Esta cabina necesita JavaScript para usar la cámara y generar el QR.</noscript>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

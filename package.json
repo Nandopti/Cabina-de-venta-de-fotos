@@ -1,0 +1,18 @@
+{
+  "name": "cabina-de-retratos",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cabina de retratos web: cámara, estilos, pago CoDi con QR y compartir en redes.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "vite": "^6.4.1"
+  }
+}
